@@ -725,18 +725,29 @@ namespace MCPForUnity.Editor.Services
         public string StackTrace { get; }
         public string Output { get; }
 
+        private const int MaxMessageChars = 2000;
+        private const int MaxStackChars = 4000;
+        private const int MaxOutputChars = 4000;
+
         internal object ToSerializable()
         {
+            bool passed = string.Equals(State, "Passed", StringComparison.OrdinalIgnoreCase);
             return new
             {
                 name = Name,
                 fullName = FullName,
                 state = State,
                 durationSeconds = DurationSeconds,
-                message = Message,
-                stackTrace = StackTrace,
-                output = Output,
+                message = passed ? null : Clip(Message, MaxMessageChars),
+                stackTrace = passed ? null : Clip(StackTrace, MaxStackChars),
+                output = passed ? null : Clip(Output, MaxOutputChars),
             };
+        }
+
+        private static string Clip(string text, int max)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+            return text.Length <= max ? text : text.Substring(0, max) + $"...[truncated {text.Length - max} chars]";
         }
 
         internal static TestRunTestResult FromAdaptor(ITestResultAdaptor adaptor)
