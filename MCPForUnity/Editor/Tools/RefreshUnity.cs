@@ -17,6 +17,10 @@ namespace MCPForUnity.Editor.Tools
     public static class RefreshUnity
     {
         private const int DefaultWaitTimeoutSeconds = 60;
+        private const int ConsoleScanEntries = 200;
+        private const int MaxDistinctErrors = 15;
+        private const int MaxMessageChars = 400;
+        private const int MaxTotalChars = 4000;
 
         public static async Task<object> HandleCommand(JObject @params)
         {
@@ -134,18 +138,80 @@ namespace MCPForUnity.Editor.Tools
                 {
                     action = "get",
                     types = new[] { "error" },
-                    count = 20,
+                    count = ConsoleScanEntries,
                     format = "plain",
                     include_stacktrace = false,
                 }));
                 // A null Data would read as "compiled clean", so never let a failed read look like one
-                if (res is SuccessResponse ok) return ok.Data ?? new object[0];
+                if (res is SuccessResponse ok) return Collapse(ok.Data as System.Collections.IEnumerable) ?? new object[0];
                 return new { error = (res as ErrorResponse)?.Error ?? "console_read_failed" };
             }
             catch (Exception ex)
             {
                 return new { error = $"console_read_failed: {ex.Message}" };
             }
+        }
+
+        private static object Collapse(System.Collections.IEnumerable entries)
+        {
+            if (entries == null) return null;
+
+            var groups = new System.Collections.Generic.List<string>();
+            var counts = new System.Collections.Generic.Dictionary<string, int>();
+            var firstText = new System.Collections.Generic.Dictionary<string, string>();
+
+            foreach (object entry in entries)
+            {
+                string text = entry?.ToString();
+                if (string.IsNullOrWhiteSpace(text)) continue;
+
+                string key = DedupeKey(text);
+                if (counts.TryGetValue(key, out int seen))
+                {
+                    counts[key] = seen + 1;
+                    continue;
+                }
+                counts[key] = 1;
+                firstText[key] = text;
+                groups.Add(key);
+            }
+
+            var outList = new System.Collections.Generic.List<string>();
+            int budget = MaxTotalChars;
+            foreach (string key in groups)
+            {
+                if (outList.Count >= MaxDistinctErrors || budget <= 0)
+                {
+                    outList.Add($"... {groups.Count - outList.Count} more distinct error(s), use read_console");
+                    break;
+                }
+                string text = firstText[key];
+                if (text.Length > MaxMessageChars) text = text.Substring(0, MaxMessageChars) + "...[truncated]";
+                if (counts[key] > 1) text += $"  (x{counts[key]})";
+                outList.Add(text);
+                budget -= text.Length;
+            }
+            return outList;
+        }
+
+        private static string DedupeKey(string text)
+        {
+            int nl = text.IndexOfAny(new[] { '\n', '\r' });
+            string head = nl >= 0 ? text.Substring(0, nl) : text;
+            var sb = new System.Text.StringBuilder(head.Length);
+            bool inNumber = false;
+            foreach (char c in head)
+            {
+                if (char.IsDigit(c))
+                {
+                    if (!inNumber) sb.Append('#');
+                    inNumber = true;
+                    continue;
+                }
+                inNumber = false;
+                sb.Append(c);
+            }
+            return sb.ToString();
         }
 
         private static Task WaitForUnityReadyAsync(TimeSpan timeout)
