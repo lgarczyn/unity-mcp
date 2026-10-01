@@ -265,8 +265,12 @@ namespace MCPForUnity.Editor.Tools
                     );
                 object logEntryInstance = Activator.CreateInstance(logEntryType);
 
-                for (int i = 0; i < totalEntries; i++)
+                bool newestFirst = !usePaging && count.HasValue;
+
+                for (int n = 0; n < totalEntries; n++)
                 {
+                    int i = newestFirst ? totalEntries - 1 - n : n;
+
                     // Get the entry data into our instance using reflection
                     _getEntryMethod.Invoke(null, new object[] { i, logEntryInstance });
 
@@ -394,6 +398,11 @@ namespace MCPForUnity.Editor.Tools
                 }
             }
 
+            if (!usePaging && count.HasValue)
+            {
+                formattedEntries.Reverse();
+            }
+
             if (usePaging)
             {
                 bool truncated = totalMatches > pageEndExclusive;
@@ -415,8 +424,11 @@ namespace MCPForUnity.Editor.Tools
             }
 
             // Return the filtered and formatted list (might be empty)
+            bool hitCap = count.HasValue && formattedEntries.Count >= count.Value;
             return new SuccessResponse(
-                $"Retrieved {formattedEntries.Count} log entries.",
+                hitCap
+                    ? $"Retrieved the {formattedEntries.Count} newest log entries; older ones were not read. Pass page_size/cursor to walk the rest."
+                    : $"Retrieved {formattedEntries.Count} log entries.",
                 formattedEntries
             );
         }
