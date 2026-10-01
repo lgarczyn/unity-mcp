@@ -1,6 +1,7 @@
 """Transport helpers for routing commands to Unity."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Awaitable, Callable, TypeVar
 
@@ -103,6 +104,14 @@ async def send_with_unity_instance(
             err = str(exc) or f"{type(exc).__name__}"
             # Fail fast with a retry hint instead of hanging for COMMAND_TIMEOUT.
             # The client can decide whether retrying is appropriate for the command.
+            if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+                return normalize_unity_response(
+                    MCPResponse(
+                        success=False,
+                        error=f"{err}: Unity did not reply in time. The command may still be running, or have completed.",
+                        hint="Check the side effect before re-sending. A blind retry can apply it twice.",
+                    ).model_dump()
+                )
             return normalize_unity_response(
                 MCPResponse(success=False, error=err,
                             hint="retry").model_dump()
